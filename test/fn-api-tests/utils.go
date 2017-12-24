@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/fnproject/fn/api/common"
+	"github.com/fnproject/fn/api/datastore"
 	"github.com/fnproject/fn/api/server"
 	"github.com/fnproject/fn_go/client"
 	httptransport "github.com/go-openapi/runtime/client"
@@ -72,6 +73,12 @@ func getServerWithCancel() (*server.Server, context.CancelFunc) {
 			dbURL = fmt.Sprintf("sqlite3://%s", tmpDb)
 		}
 
+		err := retryDatastorePing(10, time.Second*2, dbURL)
+		if err != nil {
+			fmt.Println(err.Error())
+			os.Exit(1)
+		}
+
 		s = server.New(ctx, server.WithDBURL(dbURL), server.WithMQURL(mqURL))
 
 		go s.Start(ctx)
@@ -82,7 +89,7 @@ func getServerWithCancel() (*server.Server, context.CancelFunc) {
 			}
 		})
 		log.Println("apiURL:", apiURL)
-		_, err := http.Get(apiURL + "/version")
+		_, err = http.Get(apiURL + "/version")
 		for err != nil {
 			_, err = http.Get(apiURL + "/version")
 		}
@@ -228,6 +235,17 @@ func MyCaller() string {
 	}
 	f, l := fun.FileLine(fpcs[0] - 1)
 	return fmt.Sprintf("%s:%d", f, l)
+}
+
+func retryDatastorePing(attempts int, sleep time.Duration, dbURL string) (err error) {
+	for i := 0; i < attempts; i++ {
+		_, err = datastore.New(dbURL)
+		if err == nil {
+			return nil
+		}
+		time.Sleep(sleep)
+	}
+	return err
 }
 
 func APICallWithRetry(t *testing.T, attempts int, sleep time.Duration, callback func() error) (err error) {
