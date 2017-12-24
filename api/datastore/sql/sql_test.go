@@ -8,6 +8,7 @@ import (
 	"github.com/fnproject/fn/api/datastore/internal/datastoretest"
 	"github.com/fnproject/fn/api/datastore/internal/datastoreutil"
 	"github.com/fnproject/fn/api/models"
+	"time"
 )
 
 // since New with fresh dbs skips all migrations:
@@ -40,6 +41,18 @@ func newWithMigrations(url *url.URL) (*sqlStore, error) {
 	return ds, nil
 }
 
+func retryDBConnection(t *testing.T, attempts int, sleep time.Duration, dbURL *url.URL) (err error) {
+	for i := 0; i < attempts; i++ {
+		t.Logf("[%v] - attempting to reach out datastore %v", i, dbURL.String())
+		_, err = newDS(dbURL)
+		if err == nil {
+			return nil
+		}
+		time.Sleep(sleep)
+	}
+	return err
+}
+
 func TestDatastore(t *testing.T) {
 	defer os.RemoveAll("sqlite_test_dir")
 	u, err := url.Parse("sqlite3://sqlite_test_dir")
@@ -67,6 +80,10 @@ func TestDatastore(t *testing.T) {
 
 	both := func(u *url.URL) {
 		f := func(t *testing.T) models.Datastore {
+			err = retryDBConnection(t, 20, time.Second*1, u)
+			if err != nil {
+				t.Fatal(err)
+			}
 			ds, err := newDS(u)
 			if err != nil {
 				t.Fatal(err)
@@ -83,6 +100,10 @@ func TestDatastore(t *testing.T) {
 
 		f = func(t *testing.T) models.Datastore {
 			t.Log("with migrations now!")
+			err = retryDBConnection(t, 20, time.Second*1, u)
+			if err != nil {
+				t.Fatal(err)
+			}
 			ds, err := newWithMigrations(u)
 			if err != nil {
 				t.Fatal(err)
